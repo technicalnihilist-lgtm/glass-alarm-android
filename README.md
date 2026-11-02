@@ -6,7 +6,7 @@ The UI is a single self-contained HTML page (the original `Glass_Alarm.html`): a
 
 - **APK:** [`dist/Glass_Alarm.apk`](dist/Glass_Alarm.apk) (307 KB, signed, Android 7.0+)
 - **Package:** `com.rajok.glassalarm`
-- **Version:** 1.1 (versionCode 2) — see [CHANGELOG](CHANGELOG.md)
+- **Version:** 1.2 (versionCode 3) — see [CHANGELOG](CHANGELOG.md)
 - **Min SDK:** 24 · **Target SDK:** 34
 
 ## Screenshots
@@ -27,22 +27,22 @@ Screenshots are rendered at 412 × 915 CSS px from the exact HTML that ships ins
 adb install -r dist/Glass_Alarm.apk
 ```
 
-The app declares the `INTERNET` permission, which Android's WebView requires before it will
-load *any* `http(s)` URL — including the internal `https://appassets.androidplatform.net`
-address the page is served from. Nothing in the page points outside the APK, so it makes no
-network requests; it runs fine in airplane mode.
+No `INTERNET` permission at all: the page is one self-contained file loaded from the APK over
+`file:///android_asset/`, with the fonts embedded as `data:` URIs. The app has no network path
+whatsoever and runs fine in airplane mode.
 
 ## What the native shell does
 
 The shell is one `Activity` and about 300 lines of Java. It deliberately does very little, because the design already handles everything else:
 
-- **Serves the page from APK assets over `https://appassets.androidplatform.net`** instead of `file://`. That makes it a secure context, so `localStorage`, `navigator.wakeLock`, `AudioContext` and `CSS.supports` behave exactly as they do in a browser tab rather than degrading silently.
-- **Bundles the Outfit font** (weights 200–600, `app/assets/fonts/`) so typography is identical with no network. The only edit to the original HTML is that one `<link>` to Google Fonts, replaced by local `@font-face` rules — everything else is byte-for-byte the original.
+- **Loads one self-contained file from APK assets over `file:///android_asset/`.** The HTML has its fonts embedded as `data:` URIs, so there are no subresources and nothing to fail at load time. `setAllowFileAccess(true)` is set explicitly — for targetSdk 30+ the WebView default is `false` and would block the load entirely.
+- **Embeds the Outfit font** (weights 200–600) inside the HTML so typography is identical with no network. The only edits to the original HTML are that one `<link>` to Google Fonts, replaced by `@font-face` rules, and the optimised displacement-map builder — everything else is the original.
 - **Immersive edge-to-edge, portrait, no action bar**, dark window background so there is no white flash at launch.
 - **Disables WebView's algorithmic darkening**, so the page's own light/dark theme handling stays in charge.
 - **Allows media to play without a per-tap gesture**, so alarm chimes can fire on their own. `VIBRATE` and `WAKE_LOCK` permissions back `navigator.vibrate` and the screen wake lock.
 - **Hardware back** walks out the way the UI would: stop a ringing alarm → close settings → close the sheet → close the app → exit.
-- **Failure paths are handled, not fatal:** if the renderer is killed by the OS the WebView is rebuilt instead of the app dying, if the internal `https` origin cannot be served it falls back to `file:///android_asset/`, and if the device has no working WebView it says so instead of showing a blank screen.
+- **Failure paths are reported, not fatal:** an uncaught exception is written to internal storage and shown on the next launch as selectable text (with Android version, device model and WebView version), `onCreate` is wrapped so a startup failure shows its stack trace, and a killed renderer is rebuilt once before a readable report appears.
+- **The screen stays awake natively** (`FLAG_KEEP_SCREEN_ON`), since the page's Wake Lock API needs a secure origin.
 
 ## Project layout
 
@@ -50,8 +50,7 @@ The shell is one `Activity` and about 300 lines of Java. It deliberately does ve
 app/
   AndroidManifest.xml
   src/com/rajok/glassalarm/MainActivity.java   # the whole shell
-  assets/index.html                            # the app itself
-  assets/fonts/outfit-*.woff2                  # bundled Outfit 200–600
+  assets/index.html                            # the app itself: fonts embedded, no subresources
   res/                                         # theme, adaptive launcher icon
 tools/make_icons.py                            # generates every launcher icon PNG
 build.sh                                       # aapt2 + javac + d8 + apksigner

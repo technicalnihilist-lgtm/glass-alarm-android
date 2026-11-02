@@ -1,15 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.rajok.glassalarm"
-    android:versionCode="2"
-    android:versionName="1.1">
+    android:versionCode="3"
+    android:versionName="1.2">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
-    <!-- WebView will not load any http(s) URL without this, even when every
-         request is served from APK assets by shouldInterceptRequest. The app
-         never actually reaches the network. -->
-    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- No INTERNET permission: the page is one self-contained file loaded
+         from the APK over file://, so the app has no network path at all. -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 

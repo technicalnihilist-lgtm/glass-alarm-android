@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.2 — the page no longer depends on anything at runtime
+
+1.1 still crashed on the user's device, so this release removes the failure
+surface instead of guessing at it.
+
+- **The app now loads a single self-contained file over `file:///android_asset/`.**
+  The `https://appassets.androidplatform.net` origin, the request interception,
+  the custom `WebViewClient` and the `INTERNET` permission are all gone. There is
+  nothing left to resolve, intercept or fail at load time.
+- **`setAllowFileAccess(true)` is now set explicitly.** For apps targeting API 30+
+  the WebView default is `false`, which blocks `file://` loads completely — this
+  alone would have broken any fallback path.
+- **The Outfit fonts are embedded in the HTML as `data:` URIs**, so the page is a
+  single 144 KB file with zero subresources. Verified: rendering the file from
+  `file://` with file access flags *disabled* produces no failed requests and the
+  typography is unchanged.
+- **Crash reporter.** Any uncaught exception is written to internal storage and
+  shown on the next launch as selectable text, with an "Open app anyway" button.
+  `onCreate` is wrapped too, so a failure at startup displays the stack trace
+  instead of the app just closing. The report includes Android version, device
+  model, app version and WebView version.
+- **Renderer recovery is capped** at one rebuild, then a readable report, instead
+  of an unbounded rebuild loop.
+- **The screen is kept awake natively** with `FLAG_KEEP_SCREEN_ON`; the page's
+  Wake Lock API needs a secure origin and no longer applies on `file://`.
+- Cutout-mode theme attribute moved from `values-v27` to `values-v28` (the
+  attribute is API 28).
+
+If it still fails, the app now shows *why* — a screenshot of that screen is
+enough to fix it.
+
 ## 1.1 — stability fixes
 
 The 1.0 build could open to a blank page or die on launch. Fixed:
