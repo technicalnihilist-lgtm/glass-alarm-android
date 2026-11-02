@@ -1,0 +1,14 @@
+# build output
+build/
+*.idsig
+*.apk.idsig
+
+# signing keys — never commit these
+*.jks
+*.keystore
+keystore.properties
+
+# local SDK config
+local.properties
+.gradle/
+.idea/
