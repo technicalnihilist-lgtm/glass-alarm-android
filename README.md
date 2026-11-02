@@ -1,0 +1,90 @@
+# Glass Alarm — Android APK
+
+A liquid-glass alarm clock, packaged as a real, installable Android app.
+
+The UI is a single self-contained HTML page (the original `Glass_Alarm.html`): a phone home screen with a dock icon that springs open into a full alarm app — glass cards, aurora wallpaper, an SVG refraction lens, custom alarm sounds synthesised with the Web Audio API, vibration and a screen wake lock. This repo wraps that page in a thin native Android shell so it installs and launches like any other app, works fully offline, and renders exactly as designed.
+
+- **APK:** [`dist/Glass_Alarm.apk`](dist/Glass_Alarm.apk) (303 KB, signed, Android 7.0+)
+- **Package:** `com.rajok.glassalarm`
+- **Version:** 1.0 (versionCode 1)
+- **Min SDK:** 24 · **Target SDK:** 34
+
+## Screenshots
+
+| Home screen (light) | Alarms (dark) | New alarm (dark) |
+|---|---|---|
+| ![Home screen](docs/screenshots/01-home-light.png) | ![Alarms](docs/screenshots/02-alarms-dark.png) | ![New alarm](docs/screenshots/03-new-alarm-dark.png) |
+
+Screenshots are rendered at 412 × 915 CSS px from the exact HTML that ships inside the APK.
+
+## Install
+
+**On a phone, directly:** copy `dist/Glass_Alarm.apk` to the device and tap it. Android will ask you to allow installs from that source (Settings → Install unknown apps) the first time.
+
+**With adb:**
+
+```bash
+adb install -r dist/Glass_Alarm.apk
+```
+
+No internet permission is requested — the app cannot phone home, and it needs no network to run.
+
+## What the native shell does
+
+The shell is one `Activity` and about 300 lines of Java. It deliberately does very little, because the design already handles everything else:
+
+- **Serves the page from APK assets over `https://appassets.androidplatform.net`** instead of `file://`. That makes it a secure context, so `localStorage`, `navigator.wakeLock`, `AudioContext` and `CSS.supports` behave exactly as they do in a browser tab rather than degrading silently.
+- **Bundles the Outfit font** (weights 200–600, `app/assets/fonts/`) so typography is identical with no network. The only edit to the original HTML is that one `<link>` to Google Fonts, replaced by local `@font-face` rules — everything else is byte-for-byte the original.
+- **Immersive edge-to-edge, portrait, no action bar**, dark window background so there is no white flash at launch.
+- **Disables WebView's algorithmic darkening**, so the page's own light/dark theme handling stays in charge.
+- **Allows media to play without a per-tap gesture**, so alarm chimes can fire on their own. `VIBRATE` and `WAKE_LOCK` permissions back `navigator.vibrate` and the screen wake lock.
+- **Hardware back** walks out the way the UI would: stop a ringing alarm → close settings → close the sheet → close the app → exit.
+
+## Project layout
+
+```
+app/
+  AndroidManifest.xml
+  src/com/rajok/glassalarm/MainActivity.java   # the whole shell
+  assets/index.html                            # the app itself
+  assets/fonts/outfit-*.woff2                  # bundled Outfit 200–600
+  res/                                         # theme, adaptive launcher icon
+tools/make_icons.py                            # generates every launcher icon PNG
+build.sh                                       # aapt2 + javac + d8 + apksigner
+docs/screenshots/
+dist/Glass_Alarm.apk
+```
+
+## Build from source
+
+No Gradle, no Android Studio project to import — `build.sh` drives the SDK tools directly, which keeps the build to a few seconds and the whole thing inspectable.
+
+Requirements: **JDK 17**, **Android SDK build-tools 34.0.0**, **platform android-34**.
+
+```bash
+export ANDROID_SDK_ROOT=/path/to/android-sdk
+export JAVA_HOME=/path/to/jdk-17
+./build.sh          # -> Glass_Alarm.apk
+```
+
+The script runs `aapt2 compile` → `aapt2 link` → `javac` → `d8` → `zipalign` → `apksigner`.
+
+### Signing
+
+The APK in `dist/` is signed with a locally generated keystore. **That keystore is not committed** (see `.gitignore`) — generate your own before publishing, and keep it safe: Android will only let you update an installed app with a build signed by the same key.
+
+```bash
+keytool -genkeypair -keystore my-release.jks -alias glassalarm \
+  -keyalg RSA -keysize 2048 -validity 10950
+```
+
+## Known limitations
+
+These are properties of the web app, not the packaging:
+
+- Alarms only ring **while the page stays open**, as the app itself states. If Android kills the app in the background, or the device has been asleep for a long time, a pending alarm will not fire. A truly system-level alarm would need `AlarmManager` plus a foreground service, and the schedule moved out of `localStorage` into native code.
+- The original design is a phone mockup rendered inside a page, so on a phone you see the mockup's frame with a small margin. It is reproduced as-is.
+
+## Credits
+
+UI: the original `Glass_Alarm.html` single-page app. Font: [Outfit](https://fonts.google.com/specimen/Outfit) by Smartsheet Inc. (SIL Open Font License), bundled for offline use.
