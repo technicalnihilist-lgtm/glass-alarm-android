@@ -6,17 +6,23 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.JsResult;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.net.Uri;
+import android.widget.FrameLayout;
+import android.widget.TextView;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -29,18 +35,25 @@ import java.util.Map;
  *
  * The page is served from APK assets over an https origin
  * (appassets.androidplatform.net) rather than file:// so that it runs in a
- * secure context: localStorage, Web Crypto, wake locks and AudioContext all
- * behave exactly as they do in a browser tab.
+ * secure context: localStorage, wake locks and AudioContext behave exactly as
+ * they do in a browser tab.
+ *
+ * Every failure path is handled instead of being allowed to take the process
+ * down: if the https load fails we fall back to file://, if the renderer dies
+ * we rebuild the WebView, and if WebView itself is unavailable we say so.
  */
 public class MainActivity extends Activity {
 
     private static final String HOST = "appassets.androidplatform.net";
     private static final String START_URL = "https://" + HOST + "/index.html";
+    private static final String FALLBACK_URL = "file:///android_asset/index.html";
     private static final int BG = 0xFF090B1E;
 
+    private FrameLayout container;
     private WebView web;
+    private boolean usingFallback = false;
+    private boolean rendererLost = false;
 
-    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -56,22 +69,40 @@ public class MainActivity extends Activity {
         }
         applyFullscreen(window);
 
-        web = new WebView(this);
-        web.setBackgroundColor(BG);
-        web.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        web.setVerticalScrollBarEnabled(false);
-        web.setHorizontalScrollBarEnabled(false);
+        container = new FrameLayout(this);
+        container.setBackgroundColor(BG);
+        setContentView(container);
 
-        WebSettings s = web.getSettings();
+        buildWebView();
+    }
+
+    /** Creates (or recreates) the WebView and loads the app. */
+    @SuppressLint({"SetJavaScriptEnabled"})
+    private void buildWebView() {
+        WebView view;
+        try {
+            view = new WebView(this);
+        } catch (Throwable t) {
+            // No usable WebView provider on this device.
+            showMessage("This device has no working Android System WebView, so Glass Alarm "
+                    + "cannot start.\n\nUpdate \"Android System WebView\" and \"Chrome\" from the "
+                    + "Play Store, then open the app again.");
+            return;
+        }
+
+        view.setBackgroundColor(BG);
+        view.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        view.setVerticalScrollBarEnabled(false);
+        view.setHorizontalScrollBarEnabled(false);
+
+        WebSettings s = view.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
         s.setJavaScriptCanOpenWindowsAutomatically(false);
         s.setSupportMultipleWindows(false);
-        // The alarm sounds and chimes must be allowed to start without a tap
-        // on every single play; the page itself asks for a tap once.
+        // The alarm chimes must be able to start on their own.
         s.setMediaPlaybackRequiresUserGesture(false);
-        s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
@@ -87,21 +118,35 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33) {
             s.setAlgorithmicDarkeningAllowed(false);
         }
-        if (Build.VERSION.SDK_INT >= 26) {
-            s.setSafeBrowsingEnabled(false);
-        }
 
-        web.setWebViewClient(new AssetClient());
-        web.setWebChromeClient(new WebChromeClient() {
+        view.setWebViewClient(Build.VERSION.SDK_INT >= 26 ? new AssetClient26() : new AssetClient());
+        view.setWebChromeClient(new WebChromeClient() {
             @Override
-            public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+            public boolean onJsAlert(WebView v, String url, String message, JsResult result) {
                 result.confirm();
                 return true;
             }
         });
 
-        setContentView(web);
-        web.loadUrl(START_URL);
+        web = view;
+        usingFallback = false;
+        container.removeAllViews();
+        container.addView(view, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        view.loadUrl(START_URL);
+    }
+
+    private void showMessage(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(0xFFE8ECFF);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        tv.setGravity(Gravity.CENTER);
+        int pad = (int) (24 * getResources().getDisplayMetrics().density);
+        tv.setPadding(pad, pad, pad, pad);
+        container.removeAllViews();
+        container.addView(tv, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
     }
 
     /** Immersive, edge-to-edge: the mock phone fills the whole display. */
@@ -137,35 +182,42 @@ public class MainActivity extends Activity {
 
     /**
      * Hardware back walks out of the page the way the UI itself would:
-     * stop a ringing alarm, close the settings/sheet, close the app, then exit.
+     * stop a ringing alarm, close settings, close the sheet, close the app,
+     * then exit.
      */
     @Override
     public void onBackPressed() {
-        if (web == null) {
-            super.onBackPressed();
+        if (web == null || rendererLost) {
+            finish();
             return;
         }
-        String js = "(function(){var q=function(s){return document.querySelector(s)};"
+        String js = "(function(){try{var q=function(s){return document.querySelector(s)};"
                 + "var vis=function(e){return e&&!e.hidden};"
                 + "if(vis(q('#ring'))){q('#stop').click();return 'stay'}";
         js = js + "if(vis(q('#ssheet'))){q('#setDone').click();return 'stay'}";
         js = js + "if(vis(q('#sheet'))){q('#cancel').click();return 'stay'}";
         js = js + "if(vis(q('#app'))){var c=q('#closeBtn');if(c){c.click();return 'stay'}}";
-        js = js + "return 'exit'})()";
-        web.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
-            @Override
-            public void onReceiveValue(String value) {
-                if (value == null || value.contains("exit")) {
-                    finish();
+        js = js + "return 'exit'}catch(e){return 'exit'}})()";
+        try {
+            web.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String value) {
+                    if (value == null || value.contains("exit")) finish();
                 }
-            }
-        });
+            });
+        } catch (Throwable t) {
+            finish();
+        }
     }
 
     @Override
     protected void onDestroy() {
         if (web != null) {
-            web.destroy();
+            try {
+                container.removeView(web);
+                web.destroy();
+            } catch (Throwable ignored) {
+            }
             web = null;
         }
         super.onDestroy();
@@ -176,23 +228,21 @@ public class MainActivity extends Activity {
 
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-            Uri uri = request.getUrl();
-            if (uri == null || !HOST.equals(uri.getHost())) return null;
-
-            String path = uri.getPath();
-            if (path == null || path.equals("/") || path.isEmpty()) path = "/index.html";
-            if (path.startsWith("/")) path = path.substring(1);
-
-            // No directory traversal, ever.
-            if (path.contains("..")) return notFound();
-
             try {
+                Uri uri = request.getUrl();
+                if (uri == null || !HOST.equals(uri.getHost())) return null;
+
+                String path = uri.getPath();
+                if (path == null || path.equals("/") || path.isEmpty()) path = "/index.html";
+                if (path.startsWith("/")) path = path.substring(1);
+                if (path.contains("..")) return notFound();
+
                 InputStream in = getAssets().open(path);
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Cache-Control", "no-store");
                 return new WebResourceResponse(mimeOf(path), charsetOf(path), 200, "OK",
                         headers, in);
-            } catch (IOException e) {
+            } catch (Throwable t) {
                 return notFound();
             }
         }
@@ -200,9 +250,62 @@ public class MainActivity extends Activity {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             Uri uri = request.getUrl();
-            // Everything lives inside the APK; never hand the user off to a browser.
-            return uri == null || !HOST.equals(uri.getHost());
+            if (uri == null) return false;
+            // The file:// fallback must be allowed to navigate.
+            if ("file".equals(uri.getScheme())) return false;
+            // Everything else lives inside the APK; never hand the user to a browser.
+            return !HOST.equals(uri.getHost());
         }
+
+        @Override
+        public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+            if (request == null || !request.isForMainFrame()) return;
+            loadFallback();
+        }
+    }
+
+    /**
+     * API 26+ only: keeps the process alive if the WebView renderer is killed
+     * (which is what turns a heavy page into an app crash on low-memory
+     * devices). Kept in its own class so 24/25 never load RenderProcessGoneDetail.
+     */
+    private class AssetClient26 extends AssetClient {
+        @Override
+        public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+            if (web != null) {
+                container.removeView(web);
+                try {
+                    web.destroy();
+                } catch (Throwable ignored) {
+                }
+                web = null;
+            }
+            rendererLost = true;
+            // Rebuild once; if it dies again the fallback path takes over.
+            container.post(new Runnable() {
+                @Override
+                public void run() {
+                    rendererLost = false;
+                    buildWebView();
+                }
+            });
+            return true; // we handled it — do not let the process die
+        }
+    }
+
+    /** file:// fallback if the https origin cannot be served on this device. */
+    private void loadFallback() {
+        if (usingFallback || web == null) {
+            showMessage("Glass Alarm could not load its page.\n\nTry reopening the app, or "
+                    + "reinstall it.");
+            return;
+        }
+        usingFallback = true;
+        WebSettings s = web.getSettings();
+        s.setAllowFileAccess(true);
+        s.setAllowFileAccessFromFileURLs(true);
+        s.setAllowUniversalAccessFromFileURLs(true);
+        web.loadUrl(FALLBACK_URL);
     }
 
     private WebResourceResponse notFound() {

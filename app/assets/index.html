@@ -422,18 +422,24 @@ const lens={
     document.querySelectorAll('.glass').forEach(e=>{if(!this.seen.has(e)){this.seen.add(e);this.ro.observe(e)}});
   },
   makeMap(W,H,r,B){
-    const c=document.createElement('canvas');c.width=W;c.height=H;
-    const x=c.getContext('2d'),img=x.createImageData(W,H),d=img.data,cx=W/2,cy=H/2;
-    for(let j=0;j<H;j++)for(let i=0;i<W;i++){
+    /* The displacement map is perfectly smooth, so it is built at a capped
+       resolution and stretched by feImage. Same look, a fraction of the
+       main-thread work and of the GPU memory each filter holds. */
+    const sc=Math.min(1,192/Math.max(W,H));
+    const MW=Math.max(6,Math.round(W*sc)),MH=Math.max(6,Math.round(H*sc));
+    const R=Math.max(.5,r*sc),BW=Math.max(.5,B*sc);
+    const c=document.createElement('canvas');c.width=MW;c.height=MH;
+    const x=c.getContext('2d'),img=x.createImageData(MW,MH),d=img.data,cx=MW/2,cy=MH/2;
+    for(let j=0;j<MH;j++)for(let i=0;i<MW;i++){
       const px=i+.5-cx,py=j+.5-cy;
-      const qx=Math.abs(px)-(cx-r),qy=Math.abs(py)-(cy-r);
+      const qx=Math.abs(px)-(cx-R),qy=Math.abs(py)-(cy-R);
       let nx=0,ny=0,sd;
-      if(qx>0&&qy>0){const l=Math.hypot(qx,qy);nx=qx/l;ny=qy/l;sd=l-r}
-      else if(qx>qy){nx=1;sd=qx-r}else{ny=1;sd=qy-r}
+      if(qx>0&&qy>0){const l=Math.sqrt(qx*qx+qy*qy);nx=qx/l;ny=qy/l;sd=l-R}
+      else if(qx>qy){nx=1;sd=qx-R}else{ny=1;sd=qy-R}
       if(px<0)nx=-nx;if(py<0)ny=-ny;
       const inside=-sd;let vx=0,vy=0;
-      if(inside>0&&inside<B){const m=Math.pow(1-inside/B,2);vx=-nx*m;vy=-ny*m}
-      const k=(j*W+i)*4;
+      if(inside>0&&inside<BW){const m=(1-inside/BW)*(1-inside/BW);vx=-nx*m;vy=-ny*m}
+      const k=(j*MW+i)*4;
       d[k]=128+vx*127;d[k+1]=128+vy*127;d[k+2]=128;d[k+3]=255;
     }
     x.putImageData(img,0,0);

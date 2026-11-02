@@ -4,9 +4,9 @@ A liquid-glass alarm clock, packaged as a real, installable Android app.
 
 The UI is a single self-contained HTML page (the original `Glass_Alarm.html`): a phone home screen with a dock icon that springs open into a full alarm app — glass cards, aurora wallpaper, an SVG refraction lens, custom alarm sounds synthesised with the Web Audio API, vibration and a screen wake lock. This repo wraps that page in a thin native Android shell so it installs and launches like any other app, works fully offline, and renders exactly as designed.
 
-- **APK:** [`dist/Glass_Alarm.apk`](dist/Glass_Alarm.apk) (303 KB, signed, Android 7.0+)
+- **APK:** [`dist/Glass_Alarm.apk`](dist/Glass_Alarm.apk) (307 KB, signed, Android 7.0+)
 - **Package:** `com.rajok.glassalarm`
-- **Version:** 1.0 (versionCode 1)
+- **Version:** 1.1 (versionCode 2) — see [CHANGELOG](CHANGELOG.md)
 - **Min SDK:** 24 · **Target SDK:** 34
 
 ## Screenshots
@@ -27,7 +27,10 @@ Screenshots are rendered at 412 × 915 CSS px from the exact HTML that ships ins
 adb install -r dist/Glass_Alarm.apk
 ```
 
-No internet permission is requested — the app cannot phone home, and it needs no network to run.
+The app declares the `INTERNET` permission, which Android's WebView requires before it will
+load *any* `http(s)` URL — including the internal `https://appassets.androidplatform.net`
+address the page is served from. Nothing in the page points outside the APK, so it makes no
+network requests; it runs fine in airplane mode.
 
 ## What the native shell does
 
@@ -39,6 +42,7 @@ The shell is one `Activity` and about 300 lines of Java. It deliberately does ve
 - **Disables WebView's algorithmic darkening**, so the page's own light/dark theme handling stays in charge.
 - **Allows media to play without a per-tap gesture**, so alarm chimes can fire on their own. `VIBRATE` and `WAKE_LOCK` permissions back `navigator.vibrate` and the screen wake lock.
 - **Hardware back** walks out the way the UI would: stop a ringing alarm → close settings → close the sheet → close the app → exit.
+- **Failure paths are handled, not fatal:** if the renderer is killed by the OS the WebView is rebuilt instead of the app dying, if the internal `https` origin cannot be served it falls back to `file:///android_asset/`, and if the device has no working WebView it says so instead of showing a blank screen.
 
 ## Project layout
 
@@ -77,6 +81,12 @@ The APK in `dist/` is signed with a locally generated keystore. **That keystore 
 keytool -genkeypair -keystore my-release.jks -alias glassalarm \
   -keyalg RSA -keysize 2048 -validity 10950
 ```
+
+## Stability notes
+
+Version 1.0 shipped without the `INTERNET` permission, which stops WebView from loading any
+`https` URL — the page never appeared. 1.1 fixes that along with renderer-crash recovery and a
+much cheaper displacement-map build. Details in the [CHANGELOG](CHANGELOG.md).
 
 ## Known limitations
 
