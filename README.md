@@ -2,11 +2,11 @@
 
 <img src="assets/icon.png" width="96" height="96" alt="Glass Alarm icon">
 
-<img src="assets/banner.svg" alt="Glass Alarm — a liquid-glass alarm clock web app, packaged as a native Android APK (WebView shell…">
+<img src="assets/banner.svg" alt="Glass Alarm">
 
 <a href="https://github.com/technicalnihilist-lgtm/glass-alarm-android/stargazers"><img src="https://img.shields.io/badge/stars-0-5A31F4?style=for-the-badge&logo=github&logoColor=white" alt="stars: 0"></a>&nbsp;<a href="https://github.com/technicalnihilist-lgtm/glass-alarm-android/network/members"><img src="https://img.shields.io/badge/forks-0-3FB950?style=for-the-badge" alt="forks: 0"></a>
 
-<a href="https://github.com/technicalnihilist-lgtm/glass-alarm-android/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD-APK-6D5AE6?style=for-the-badge&logo=android&logoColor=white" alt="Download APK"></a>
+<a href="https://github.com/technicalnihilist-lgtm/glass-alarm-android/releases/latest/download/Glass_Alarm.apk"><img src="https://img.shields.io/badge/DOWNLOAD-APK-6D5AE6?style=for-the-badge&logo=android&logoColor=white" alt="Download APK"></a> <a href="https://technicalnihilist-lgtm.github.io/apps-site/apps/glass-alarm-android.html"><img src="https://img.shields.io/badge/WEBSITE-OPEN-3B82F6?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Website"></a>
 
 <b>Support the work</b>
 
